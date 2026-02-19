@@ -23,7 +23,7 @@ app = FastAPI(
 
 MODEL = None
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-MODEL_PATH = "ctcgan_generator.pth"
+MODEL_PATH = "ctcgan_best.pth"
 
 
 def infer_model_config(state_dict: dict) -> dict:
