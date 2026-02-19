@@ -60,7 +60,7 @@ def load_model():
     global MODEL
     print(f"Loading CTCNet from {MODEL_PATH} on {DEVICE}...")
 
-    checkpoint = torch.load(MODEL_PATH, map_location=DEVICE)
+    checkpoint = torch.load(MODEL_PATH, map_location=DEVICE, weights_only=False)
     state_dict = checkpoint.get("model_state_dict", checkpoint)
 
     cfg = infer_model_config(state_dict)
