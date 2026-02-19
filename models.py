@@ -250,8 +250,8 @@ class CTCNet(nn.Module):
 
         self.sr_head = nn.Sequential(
             nn.Conv2d(C, mid, 3, padding=1),   # mid channels auto-matched to checkpoint
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(mid, 3, 3, padding=1)
+            nn.PixelShuffle(scale),
+            nn.Conv2d(mid // (scale * scale), 3, 3, padding=1)
         )
         self.upsample_lr = nn.Upsample(scale_factor=scale, mode='bicubic', align_corners=False)
 
