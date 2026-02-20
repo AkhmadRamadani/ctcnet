@@ -301,7 +301,7 @@ class ResNetSR(nn.Module):
     def __init__(self):
         super().__init__()
         # Based on keys: head.weight, res_layers_down1_pre.encoder...
-        self.head = nn.Conv2d(3, 64, 3, padding=1)  # Guessing input channels/dim
+        self.head = nn.Conv2d(3, 32, 3, padding=1)  # Fixed: 32 channels based on checkpoint
 
         # Structure for res_layers_down1_pre
         # Keys show: encoder.layer1, layer2, layer4, alise, atten
@@ -311,9 +311,9 @@ class ResNetSR(nn.Module):
         # Helper to make a dummy layer that accepts weights
         def make_layer():
             return nn.Sequential(
-                nn.Conv2d(64, 64, 3, padding=1),
+                nn.Conv2d(32, 32, 3, padding=1),
                 nn.ReLU(inplace=True),
-                nn.Conv2d(64, 64, 3, padding=1)
+                nn.Conv2d(32, 32, 3, padding=1)
             )
 
         self.res_layers_down1_pre.encoder.layer1 = make_layer()
@@ -321,8 +321,8 @@ class ResNetSR(nn.Module):
         self.res_layers_down1_pre.encoder.layer3 = make_layer() # Guessing layer3 exists
         self.res_layers_down1_pre.encoder.layer4 = make_layer()
 
-        self.res_layers_down1_pre.encoder.alise = nn.Conv2d(64, 64, 1) # Guess
-        self.res_layers_down1_pre.encoder.atten = nn.Sequential(nn.Conv2d(64,64,1)) # Guess
+        self.res_layers_down1_pre.encoder.alise = nn.Conv2d(32, 32, 1) # Guess
+        self.res_layers_down1_pre.encoder.atten = nn.Sequential(nn.Conv2d(32,32,1)) # Guess
 
     def forward(self, x):
         # Pass-through for now as we don't have the real forward logic
