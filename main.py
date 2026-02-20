@@ -62,40 +62,53 @@ def load_model():
 
     checkpoint = torch.load(MODEL_PATH, map_location=DEVICE, weights_only=False)
 
-    # Try multiple keys for the state dict
-    if isinstance(checkpoint, dict):
-        if "model_state_dict" in checkpoint:
-            state_dict = checkpoint["model_state_dict"]
-        elif "state_dict" in checkpoint:
-            state_dict = checkpoint["state_dict"]
-        elif "generator" in checkpoint:
-            state_dict = checkpoint["generator"]
-        elif "G" in checkpoint:
-            state_dict = checkpoint["G"]
-        elif "model" in checkpoint:
-            state_dict = checkpoint["model"]
-        else:
-            state_dict = checkpoint
+    # 1. Handle if checkpoint is a nn.Module
+    if isinstance(checkpoint, torch.nn.Module):
+        print("  Checkpoint is a torch.nn.Module, extracting state_dict...")
+        state_dict = checkpoint.state_dict()
     else:
         state_dict = checkpoint
 
-    # Auto-detect prefix (e.g., "module.", "netG.", etc.)
-    # Look for any key ending in "shallow_conv.weight"
-    prefix = ""
-    for k in state_dict.keys():
-        if k.endswith("shallow_conv.weight"):
-            prefix = k[:-len("shallow_conv.weight")]
-            break
+    # 2. Recursive search for a dict containing "shallow_conv.weight"
+    def find_state_dict_with_key(obj, key_suffix="shallow_conv.weight", depth=0, max_depth=3):
+        if depth > max_depth:
+            return None, None
 
-    if prefix:
-        print(f"  Detected prefix: '{prefix}'")
-        new_state_dict = {}
-        for k, v in state_dict.items():
-            if k.startswith(prefix):
-                new_state_dict[k[len(prefix):]] = v
-            else:
-                new_state_dict[k] = v
-        state_dict = new_state_dict
+        if isinstance(obj, dict):
+            # Check if this dict contains the key directly or with suffix
+            for k in obj.keys():
+                if str(k).endswith(key_suffix):
+                    return obj, k[:-len(key_suffix)]  # Return dict and prefix
+
+            # Recurse into values
+            for k, v in obj.items():
+                if isinstance(v, (dict, torch.nn.Module)):
+                     found_dict, prefix = find_state_dict_with_key(v, key_suffix, depth + 1, max_depth)
+                     if found_dict is not None:
+                         return found_dict, prefix
+
+        elif isinstance(obj, torch.nn.Module):
+            return find_state_dict_with_key(obj.state_dict(), key_suffix, depth + 1, max_depth)
+
+        return None, None
+
+    found_state_dict, prefix = find_state_dict_with_key(state_dict)
+
+    if found_state_dict is not None:
+        state_dict = found_state_dict
+        if prefix:
+            print(f"  Detected prefix: '{prefix}'")
+            new_state_dict = {}
+            for k, v in state_dict.items():
+                if k.startswith(prefix):
+                    new_state_dict[k[len(prefix):]] = v
+                else:
+                    new_state_dict[k] = v
+            state_dict = new_state_dict
+    else:
+        print("  ⚠️ Could not find 'shallow_conv.weight' in checkpoint!")
+        if isinstance(state_dict, dict):
+             print(f"  Top-level keys: {list(state_dict.keys())[:20]}")
 
     cfg = infer_model_config(state_dict)
     print(f"  Auto-detected config: {cfg}")
