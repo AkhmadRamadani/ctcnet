@@ -23,7 +23,7 @@ app = FastAPI(
 
 MODEL = None
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-MODEL_PATH = "ctcgan_best.pth"
+MODEL_PATH = "best_model.pth"
 
 
 def infer_model_config(state_dict: dict) -> dict:
@@ -62,6 +62,16 @@ def load_model():
 
     checkpoint = torch.load(MODEL_PATH, map_location=DEVICE, weights_only=False)
     state_dict = checkpoint.get("model_state_dict", checkpoint)
+
+    # Handle DataParallel 'module.' prefix if present
+    if "shallow_conv.weight" not in state_dict:
+        new_state_dict = {}
+        for k, v in state_dict.items():
+            if k.startswith("module."):
+                new_state_dict[k[7:]] = v  # remove "module."
+            else:
+                new_state_dict[k] = v
+        state_dict = new_state_dict
 
     cfg = infer_model_config(state_dict)
     print(f"  Auto-detected config: {cfg}")
