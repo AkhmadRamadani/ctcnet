@@ -61,14 +61,38 @@ def load_model():
     print(f"Loading CTCNet from {MODEL_PATH} on {DEVICE}...")
 
     checkpoint = torch.load(MODEL_PATH, map_location=DEVICE, weights_only=False)
-    state_dict = checkpoint.get("model_state_dict", checkpoint)
 
-    # Handle DataParallel 'module.' prefix if present
-    if "shallow_conv.weight" not in state_dict:
+    # Try multiple keys for the state dict
+    if isinstance(checkpoint, dict):
+        if "model_state_dict" in checkpoint:
+            state_dict = checkpoint["model_state_dict"]
+        elif "state_dict" in checkpoint:
+            state_dict = checkpoint["state_dict"]
+        elif "generator" in checkpoint:
+            state_dict = checkpoint["generator"]
+        elif "G" in checkpoint:
+            state_dict = checkpoint["G"]
+        elif "model" in checkpoint:
+            state_dict = checkpoint["model"]
+        else:
+            state_dict = checkpoint
+    else:
+        state_dict = checkpoint
+
+    # Auto-detect prefix (e.g., "module.", "netG.", etc.)
+    # Look for any key ending in "shallow_conv.weight"
+    prefix = ""
+    for k in state_dict.keys():
+        if k.endswith("shallow_conv.weight"):
+            prefix = k[:-len("shallow_conv.weight")]
+            break
+
+    if prefix:
+        print(f"  Detected prefix: '{prefix}'")
         new_state_dict = {}
         for k, v in state_dict.items():
-            if k.startswith("module."):
-                new_state_dict[k[7:]] = v  # remove "module."
+            if k.startswith(prefix):
+                new_state_dict[k[len(prefix):]] = v
             else:
                 new_state_dict[k] = v
         state_dict = new_state_dict
