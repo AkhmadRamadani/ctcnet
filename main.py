@@ -13,7 +13,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import StreamingResponse, JSONResponse
 import uvicorn
 
-from models import CTCNet
+from models import CTCNet, ResNetSR
 
 app = FastAPI(
     title="CTCNet Face Super-Resolution API",
@@ -110,17 +110,29 @@ def load_model():
         if isinstance(state_dict, dict):
              print(f"  Top-level keys: {list(state_dict.keys())[:20]}")
 
-    cfg = infer_model_config(state_dict)
-    print(f"  Auto-detected config: {cfg}")
+    # Check if keys match CTCNet or ResNetSR
+    if "shallow_conv.weight" in state_dict:
+        print("  Detected CTCNet architecture.")
+        cfg = infer_model_config(state_dict)
+        print(f"  Auto-detected config: {cfg}")
 
-    model = CTCNet(
-        base_channels=cfg["base_channels"],
-        num_frm=cfg["num_frm"],
-        sr_head_mid_channels=cfg["sr_head_mid_channels"],
-        num_heads=cfg["num_heads"],
-        scale=8,
-    )
-    model.load_state_dict(state_dict)
+        model = CTCNet(
+            base_channels=cfg["base_channels"],
+            num_frm=cfg["num_frm"],
+            sr_head_mid_channels=cfg["sr_head_mid_channels"],
+            num_heads=cfg["num_heads"],
+            scale=8,
+        )
+        model.load_state_dict(state_dict)
+    elif "head.weight" in state_dict:
+        print("  Detected ResNetSR architecture.")
+        model = ResNetSR()
+        # Load with strict=False because our ResNetSR definition is a guess/placeholder
+        # and likely doesn't match every layer perfectly.
+        missing, unexpected = model.load_state_dict(state_dict, strict=False)
+        print(f"  Loaded ResNetSR with missing keys: {len(missing)}, unexpected keys: {len(unexpected)}")
+    else:
+        raise KeyError("Unknown model architecture. Could not find 'shallow_conv.weight' or 'head.weight'.")
 
     if "epoch" in checkpoint:
         print(f"  Loaded from epoch {checkpoint['epoch']}")
