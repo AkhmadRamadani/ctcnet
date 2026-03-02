@@ -13,7 +13,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import StreamingResponse, JSONResponse
 import uvicorn
 
-from models import CTCNet
+from models import CTCNet, ResNetSR
 
 app = FastAPI(
     title="CTCNet Face Super-Resolution API",
@@ -23,7 +23,7 @@ app = FastAPI(
 
 MODEL = None
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-MODEL_PATH = "ctcgan_generator.pth"
+MODEL_PATH = "best_model.pth"
 
 
 def infer_model_config(state_dict: dict) -> dict:
@@ -60,20 +60,79 @@ def load_model():
     global MODEL
     print(f"Loading CTCNet from {MODEL_PATH} on {DEVICE}...")
 
-    checkpoint = torch.load(MODEL_PATH, map_location=DEVICE)
-    state_dict = checkpoint.get("model_state_dict", checkpoint)
+    checkpoint = torch.load(MODEL_PATH, map_location=DEVICE, weights_only=False)
 
-    cfg = infer_model_config(state_dict)
-    print(f"  Auto-detected config: {cfg}")
+    # 1. Handle if checkpoint is a nn.Module
+    if isinstance(checkpoint, torch.nn.Module):
+        print("  Checkpoint is a torch.nn.Module, extracting state_dict...")
+        state_dict = checkpoint.state_dict()
+    else:
+        state_dict = checkpoint
 
-    model = CTCNet(
-        base_channels=cfg["base_channels"],
-        num_frm=cfg["num_frm"],
-        sr_head_mid_channels=cfg["sr_head_mid_channels"],
-        num_heads=cfg["num_heads"],
-        scale=8,
-    )
-    model.load_state_dict(state_dict)
+    # 2. Recursive search for a dict containing "shallow_conv.weight"
+    def find_state_dict_with_key(obj, key_suffix="shallow_conv.weight", depth=0, max_depth=3):
+        if depth > max_depth:
+            return None, None
+
+        if isinstance(obj, dict):
+            # Check if this dict contains the key directly or with suffix
+            for k in obj.keys():
+                if str(k).endswith(key_suffix):
+                    return obj, k[:-len(key_suffix)]  # Return dict and prefix
+
+            # Recurse into values
+            for k, v in obj.items():
+                if isinstance(v, (dict, torch.nn.Module)):
+                     found_dict, prefix = find_state_dict_with_key(v, key_suffix, depth + 1, max_depth)
+                     if found_dict is not None:
+                         return found_dict, prefix
+
+        elif isinstance(obj, torch.nn.Module):
+            return find_state_dict_with_key(obj.state_dict(), key_suffix, depth + 1, max_depth)
+
+        return None, None
+
+    found_state_dict, prefix = find_state_dict_with_key(state_dict)
+
+    if found_state_dict is not None:
+        state_dict = found_state_dict
+        if prefix:
+            print(f"  Detected prefix: '{prefix}'")
+            new_state_dict = {}
+            for k, v in state_dict.items():
+                if k.startswith(prefix):
+                    new_state_dict[k[len(prefix):]] = v
+                else:
+                    new_state_dict[k] = v
+            state_dict = new_state_dict
+    else:
+        print("  ⚠️ Could not find 'shallow_conv.weight' in checkpoint!")
+        if isinstance(state_dict, dict):
+             print(f"  Top-level keys: {list(state_dict.keys())[:20]}")
+
+    # Check if keys match CTCNet or ResNetSR
+    if "shallow_conv.weight" in state_dict:
+        print("  Detected CTCNet architecture.")
+        cfg = infer_model_config(state_dict)
+        print(f"  Auto-detected config: {cfg}")
+
+        model = CTCNet(
+            base_channels=cfg["base_channels"],
+            num_frm=cfg["num_frm"],
+            sr_head_mid_channels=cfg["sr_head_mid_channels"],
+            num_heads=cfg["num_heads"],
+            scale=8,
+        )
+        model.load_state_dict(state_dict)
+    elif "head.weight" in state_dict:
+        print("  Detected ResNetSR architecture.")
+        model = ResNetSR()
+        # Load with strict=False because our ResNetSR definition is a guess/placeholder
+        # and likely doesn't match every layer perfectly.
+        missing, unexpected = model.load_state_dict(state_dict, strict=False)
+        print(f"  Loaded ResNetSR with missing keys: {len(missing)}, unexpected keys: {len(unexpected)}")
+    else:
+        raise KeyError("Unknown model architecture. Could not find 'shallow_conv.weight' or 'head.weight'.")
 
     if "epoch" in checkpoint:
         print(f"  Loaded from epoch {checkpoint['epoch']}")

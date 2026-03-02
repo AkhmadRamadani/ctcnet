@@ -1,2 +1,4 @@
 # all .pth files
 *.pth
+__pycache__/
+*.pyc

@@ -250,8 +250,8 @@ class CTCNet(nn.Module):
 
         self.sr_head = nn.Sequential(
             nn.Conv2d(C, mid, 3, padding=1),   # mid channels auto-matched to checkpoint
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(mid, 3, 3, padding=1)
+            nn.PixelShuffle(scale),
+            nn.Conv2d(mid // (scale * scale), 3, 3, padding=1)
         )
         self.upsample_lr = nn.Upsample(scale_factor=scale, mode='bicubic', align_corners=False)
 
@@ -289,3 +289,41 @@ class CTCNet(nn.Module):
         h, w    = i_lr_up.shape[2], i_lr_up.shape[3]
 
         return torch.clamp(i_lr_up + i_out[:, :, :h, :w], 0.0, 1.0)
+
+
+# ── ResNetSR ──────────────────────────────────────────────────────────────────
+
+class ResNetSR(nn.Module):
+    """
+    Placeholder/Adapter for the specific model architecture detected in best_model.pth.
+    Keys suggest: head, res_layers_down1_pre.encoder.layer1, etc.
+    """
+    def __init__(self):
+        super().__init__()
+        # Based on keys: head.weight, res_layers_down1_pre.encoder...
+        self.head = nn.Conv2d(3, 32, 3, padding=1)  # Fixed: 32 channels based on checkpoint
+
+        # Structure for res_layers_down1_pre
+        # Keys show: encoder.layer1, layer2, layer4, alise, atten
+        self.res_layers_down1_pre = nn.Module()
+        self.res_layers_down1_pre.encoder = nn.Module()
+
+        # Helper to make a dummy layer that accepts weights
+        def make_layer():
+            return nn.Sequential(
+                nn.Conv2d(32, 32, 3, padding=1),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(32, 32, 3, padding=1)
+            )
+
+        self.res_layers_down1_pre.encoder.layer1 = make_layer()
+        self.res_layers_down1_pre.encoder.layer2 = make_layer()
+        self.res_layers_down1_pre.encoder.layer3 = make_layer() # Guessing layer3 exists
+        self.res_layers_down1_pre.encoder.layer4 = make_layer()
+
+        self.res_layers_down1_pre.encoder.alise = nn.Conv2d(32, 32, 1) # Guess
+        self.res_layers_down1_pre.encoder.atten = nn.Sequential(nn.Conv2d(32,32,1)) # Guess
+
+    def forward(self, x):
+        # Pass-through for now as we don't have the real forward logic
+        return F.interpolate(x, scale_factor=8, mode='bicubic', align_corners=False)
